@@ -726,7 +726,7 @@ At build time (SSG):
 
 Next.js starts rendering the page.
 
-<h1>Welcome</h1> + fallback (Loading posts...) is output immediately.
+h1 Welcome  h1 + fallback (Loading posts...) is output immediately.
 
 When fetch resolves, the <LatestPosts /> content is streamed into the output.
 
