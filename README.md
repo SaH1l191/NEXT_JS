@@ -1,4 +1,5 @@
  
+Reference : https://www.youtube.com/watch?v=k7o9R6eaSes
 
 Cacheing in NextJS
 
@@ -509,3 +510,234 @@ When Feed is ready, the server streams that chunk to the browser
 ✅ Users see useful content faster
 ✅ Server sends HTML in chunks instead of waiting to send all at once
 ✅ Only what’s needed gets hydrated (Selective Hydration)
+
+
+
+
+🔹 Static Rendering
+What it is
+
+The page is rendered ahead of time (at build time or during ISR revalidation) and stored in .next or cache.
+
+All users get the same precomputed HTML + RSC payload (unless revalidated).
+
+Cheapest and fastest, because rendering doesn’t happen on every request.
+
+When it happens
+
+You don’t use any dynamic APIs (cookies, headers, searchParams, etc.).
+
+Your fetch calls allow caching (e.g., default fetch with next: { revalidate: 60 } or no-store not used).
+
+The result can be reused for multiple requests.
+
+Example
+// app/page.tsx
+export default async function HomePage() {
+  const posts = await fetch("https://api.example.com/posts", {
+    next: { revalidate: 3600 }, // revalidate every 1 hour
+  }).then(res => res.json());
+
+  return <pre>{JSON.stringify(posts, null, 2)}</pre>;
+}
+
+
+✅ Pre-rendered once at build or first request.
+
+✅ Served from cache until 1 hour passes.
+
+✅ Super fast.
+
+🔹 Dynamic Rendering
+What it is
+
+The page is re-rendered for every incoming request on the server.
+
+Each request can produce a different result (e.g., personalized HTML).
+
+More expensive than static, but allows per-user variation.
+
+When it happens
+
+You use dynamic APIs:
+
+cookies()
+
+headers()
+
+searchParams
+
+Or you explicitly disable caching:
+
+fetch(url, { cache: "no-store" });
+export const dynamic = "force-dynamic";
+
+
+Next.js cannot safely reuse a cached version.
+
+Example
+// app/profile/page.tsx
+import { cookies } from "next/headers";
+
+export default function ProfilePage() {
+  const theme = cookies().get("theme")?.value || "light";
+  return <h1>Your theme: {theme}</h1>;
+}
+
+
+✅ Runs on every request.
+
+✅ Different users can see different results.
+
+❌ Slower than static, because rendering happens each time.
+
+
+🔹 generateStaticParams in Next.js App Router
+
+It’s the App Router replacement for getStaticPaths from the old Pages Router.
+
+When you export generateStaticParams in a dynamic route (like [id]/page.tsx), Next.js will:
+
+Call generateStaticParams() at build time (or during ISR on-demand).
+
+Pre-render the page for each param returned.
+
+Store the result in .next or the cache.
+
+This means the page is Static Rendering (SSG) by default, not recomputed on each request.
+
+
+Example
+// app/posts/[id]/page.ts
+export async function generateStaticParams() {
+  return [{ id: '1' }, { id: '2' }]; // prebuild /posts/1 and /posts/2
+}
+
+export default async function PostPage({ params }: { params: { id: string } }) {
+  const res = await fetch(`https://api.example.com/posts/${params.id}`, {
+    next: { revalidate: 60 }, // ISR: revalidate after 60s
+  });
+  const post = await res.json();
+
+  return <h1>{post.title}</h1>;
+}
+
+🔹 Behavior
+
+At build: /posts/1 and /posts/2 are rendered and cached.
+
+At request:
+
+If cache is still valid → served instantly from cache (⚡).
+
+If cache is stale → Next.js re-renders in the background (ISR) and updates cache.
+
+No dynamic APIs (like cookies) are allowed here — otherwise Next.js will force dynamic rendering.
+
+Dynamic Params in generateStaticParams :
+
+export const dynamicParams = true (default)
+
+If a user requests a param that wasn’t generated at build time:
+
+Next.js will try to dynamically render the page at runtime (SSR) and cache/revalidate if possible.
+
+This gives flexibility for "infinite" or user-generated content.
+
+✅ Example use case: Blog with new posts coming in after deployment.
+
+// app/posts/[id]/page.tsx
+export const dynamicParams = true; // default
+
+
+If you prebuild only [{id: "1"}] via generateStaticParams(),
+and someone visits /posts/2:
+→ Next.js will render /posts/2 dynamically at request time.
+
+
+
+export const dynamicParams = false
+If a user requests a param that wasn’t generated at build time:
+Next.js will throw a 404.
+This is stricter: only the params from generateStaticParams are valid.
+
+
+Streaming in nextjs SSG:-
+🔹 1. What is streaming?
+
+Normally, with SSR/SSG, the server waits until all data is ready before sending the HTML to the client.
+
+With streaming, the server can send parts of the page immediately, and "suspend" parts of the React tree until their data is ready.
+
+This improves Time-to-First-Byte (TTFB) and perceived performance.
+
+🔹 2. Where streaming applies in Next.js
+
+Works with React 18 Suspense and Server Components in the App Router.
+
+Supported in SSR and SSG both:
+
+SSR (dynamic) → streamed per request.
+
+SSG (static) → streamed at build time, but Suspense boundaries still apply (lets you split static + client fallback).
+
+🔹 3. Suspense in SSG
+
+Imagine you have a static page, but part of it is slow to render (e.g., a large data fetch at build). Instead of blocking the whole build step until that finishes, you can:
+
+Render a fallback immediately
+
+Stream in the resolved content later (even during the build/static render)
+
+Example
+// app/page.tsx
+import { Suspense } from "react";
+import LatestPosts from "./LatestPosts";
+
+export default function Home() {
+  return (
+    <main>
+      <h1>Welcome</h1>
+      <Suspense fallback={<p>Loading posts...</p>}>
+        {/* This may suspend (fetching data) */}
+        <LatestPosts />
+      </Suspense>
+    </main>
+  );
+}
+
+// app/LatestPosts.tsx (Server Component)
+export default async function LatestPosts() {
+  const res = await fetch("https://api.example.com/posts", {
+    next: { revalidate: 3600 }, // SSG with ISR
+  });
+  const posts = await res.json();
+
+  return (
+    <ul>
+      {posts.map((p: any) => <li key={p.id}>{p.title}</li>)}
+    </ul>
+  );
+}
+
+🔹 4. What happens at build
+
+At build time (SSG):
+
+Next.js starts rendering the page.
+
+<h1>Welcome</h1> + fallback (Loading posts...) is output immediately.
+
+When fetch resolves, the <LatestPosts /> content is streamed into the output.
+
+Final static file contains the full resolved HTML, but streaming made the build pipeline faster + incremental.
+
+🔹 5. Why it matters
+
+Even though SSG generates static HTML at build, Suspense + streaming means:
+
+You don’t block rendering the whole page for one slow section.
+
+You get better developer experience (faster builds, partial hydration).
+
+With ISR, streaming works the same way during regeneration.

@@ -27,6 +27,8 @@ export default function Home() {
             <li>CSR vs SSR in Readme</li>
             <li>SSR vs RSC in Readme</li>
              <li>SSR vs RSC in Readme</li>
+             <li>Dynamic and static rendering </li>
+              <li>serial and parallel data fetching  </li>
           </ul>
         </li>
 
